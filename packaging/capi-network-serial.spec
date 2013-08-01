@@ -1,6 +1,6 @@
 Name:       capi-network-serial
 Summary:    Network Serial Framework
-Version: 0.0.7
+Version: 0.0.8
 Release:    0
 Group:      API
 License:    Apache License, Version 2.0

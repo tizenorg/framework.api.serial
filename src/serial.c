@@ -99,8 +99,10 @@ static int __connect_to_serial_server(void *data)
 	int client_socket = -1;
 	struct sockaddr_un	server_addr;
 	serial_s *pHandle = (serial_s *)data;
-	if (pHandle == NULL)
+	if (pHandle == NULL) {
+		ERR("Invalid parameter\n");
 		return -1;
+	}
 
 	client_socket = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (client_socket < 0) {
@@ -142,6 +144,7 @@ static DBusHandlerResult __dbus_event_filter(DBusConnection *sys_conn,
 		dbus_message_get_args(msg, NULL,
 					DBUS_TYPE_INT32, &res,
 					DBUS_TYPE_INVALID);
+		DBG("serial_status : %d\n", res);
 
 		serial_s *pHandle = (serial_s *)data;
 		if (res == SERIAL_OPENED) {
@@ -320,7 +323,7 @@ int serial_close(serial_h serial)
 
 	serial_s *pHandle = (serial_s *)serial;
 
-	if (pHandle->client_socket > 0) {
+	if (pHandle->client_socket >= 0) {
 		if (close(pHandle->client_socket) < 0)
 			return SERIAL_ERROR_OPERATION_FAILED;
 
@@ -355,10 +358,10 @@ int serial_destroy(serial_h serial)
 
 	if (pHandle->g_watch_id > 0) {
 		g_source_remove(pHandle->g_watch_id);
-		pHandle->g_watch_id = -1;
+		pHandle->g_watch_id = 0;
 	}
 
-	if (pHandle->client_socket > 0) {
+	if (pHandle->client_socket >= 0) {
 		close(pHandle->client_socket);
 		pHandle->client_socket = -1;
 	}
@@ -380,8 +383,8 @@ int serial_write(serial_h serial, const char *data, int data_length)
 
 	ret = send(pHandle->client_socket, data, data_length, MSG_EOR);
 	if (ret == -1) {
-		 ERR("Send failed. ");
-		 return SERIAL_ERROR_OPERATION_FAILED;
+		ERR("Send failed. ");
+		return SERIAL_ERROR_OPERATION_FAILED;
 	}
 
 	return ret;
