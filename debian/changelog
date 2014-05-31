@@ -1,0 +1,32 @@
+capi-network-serial (0.0.2-3) unstable; urgency=low
+
+  * Upload the package
+  * Git: slp-source.sec.samsung.net:slp/api/serial
+  * Tag: capi-network-serial_0.0.4
+
+ -- InJun Yang <injun.yang@samsung.com>  Sat, 08 Sep 2012 00:49:53 +0900
+
+capi-network-serial (0.0.2-2) unstable; urgency=low
+
+  * Upload the package
+  * Git: slp-source.sec.samsung.net:slp/api/serial
+  * Tag: capi-network-serial_0.0.3
+
+ -- InJun Yang <injun.yang@samsung.com>  Wed, 08 Aug 2012 13:25:47 +0900
+
+capi-network-serial (0.0.2-1) unstable; urgency=low
+
+   * Fix the crash issue
+   * Git: slp-source.sec.samsung.net:slp/api/serial
+   * Tag: capi-network-serial_0.0.2-1
+
+ -- InJun Yang <injun.yang@samsung.com>  Mon, 14 May 2012 10:49:29 +0900
+
+capi-network-serial (0.0.1-1) unstable; urgency=low
+
+   * Initial upload
+   * Git: slp-source.sec.samsung.net:slp/api/serial
+   * Tag: capi-network-serial_0.0.1-1
+
+ -- InJun Yang <injun.yang@samsung.com>  Mon, 08 Aug 2011 10:12:25 +0900
+

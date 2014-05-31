@@ -1,0 +1,21 @@
+Source: capi-network-serial
+Section: libs
+Priority: extra
+Maintainer: Kangho Hur <kangho.hur@samsung.com>, ByungWoo Lee <bw1212.lee@samsung.com>, Hocheol Seo <hocheol.seo@samsung.com>, InJun Yang <injun.yang@samsung.com>
+Build-Depends: debhelper (>= 5), dlog-dev, capi-base-common-dev, libglib2.0-dev
+
+Package: capi-network-serial
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: A Network Serial library in Tizen Native API
+
+Package: capi-network-serial-dev
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, capi-network-serial (= ${Source-Version}), capi-base-common-dev
+Description: A Network Serial library in Tizen Native API (DEV)
+
+Package: capi-network-serial-dbg
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, capi-network-serial (= ${Source-Version})
+Description: A Network Serial library in Tizen Native API (DBG)
+
