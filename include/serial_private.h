@@ -44,7 +44,7 @@ extern "C" {
  typedef struct _serial_s{
 	DBusGConnection *client_bus;
 	int client_socket;
-	int g_watch_id;
+	guint g_watch_id;
 	serial_event_s state_handler;
 	serial_event_s data_handler;
 	void *handle;

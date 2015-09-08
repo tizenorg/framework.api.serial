@@ -36,8 +36,10 @@
 #ifdef LOG_TAG
 #undef LOG_TAG
 #endif
-#define LOG_TAG "SERIAL"
+#define LOG_TAG "CAPI_NETWORK_SERIAL"
 
+#define DBG(fmt, args...) SLOGD(fmt, ##args)
+#define ERR(fmt, args...) SLOGE(fmt, ##args)
 
 #define SERIAL_SOCKET_PATH	"/tmp/.dr_common_stream"
 #define SERIAL_BUF_SIZE		65536
@@ -62,7 +64,7 @@ static gboolean __g_io_client_handler(GIOChannel *io, GIOCondition cond, void *d
 		fd = g_io_channel_unix_get_fd(io);
 		len = recv(fd, buffer, SERIAL_BUF_SIZE, 0);
 		if(len <= 0) {
-			LOGE("Error occured or the peer is shutdownd. [%d]\n", len);
+			ERR("Error occured or the peer is shutdownd. [%d]\n", len);
 			((serial_state_changed_cb)pHandle->state_handler.callback)
 					(SERIAL_ERROR_NONE,
 					SERIAL_STATE_CLOSED,
@@ -97,12 +99,14 @@ static int __connect_to_serial_server(void *data)
 	int client_socket = -1;
 	struct sockaddr_un	server_addr;
 	serial_s *pHandle = (serial_s *)data;
-	if (pHandle == NULL)
+	if (pHandle == NULL) {
+		ERR("Invalid parameter\n");
 		return -1;
+	}
 
 	client_socket = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (client_socket < 0) {
-		LOGE("Create socket failed\n");
+		ERR("Create socket failed\n");
 		return -1;
 	}
 
@@ -111,7 +115,8 @@ static int __connect_to_serial_server(void *data)
 	g_strlcpy(server_addr.sun_path, SERIAL_SOCKET_PATH, sizeof(server_addr.sun_path));
 
 	if (connect(client_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-		LOGE("Connect failed\n");
+		ERR("Connect failed\n");
+		close(client_socket);
 		return -1;
 	}
 	pHandle->client_socket = client_socket;
@@ -126,7 +131,6 @@ static DBusHandlerResult __dbus_event_filter(DBusConnection *sys_conn,
 							DBusMessage *msg, void *data)
 {
 	static int socket = -1;
-	char *member;
 	const char *path = dbus_message_get_path(msg);
 
 	if (dbus_message_get_type(msg) != DBUS_MESSAGE_TYPE_SIGNAL)
@@ -134,13 +138,13 @@ static DBusHandlerResult __dbus_event_filter(DBusConnection *sys_conn,
 
 	if (path == NULL || strcmp(path, "/") == 0)
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
-	member = (char *)dbus_message_get_member(msg);
 
 	if (dbus_message_is_signal(msg, SERIAL_INTERFACE, "serial_status")) {
 		int res = 0;
 		dbus_message_get_args(msg, NULL,
 					DBUS_TYPE_INT32, &res,
 					DBUS_TYPE_INVALID);
+		DBG("serial_status : %d\n", res);
 
 		serial_s *pHandle = (serial_s *)data;
 		if (res == SERIAL_OPENED) {
@@ -185,14 +189,14 @@ int __send_serial_ready_done_signal(void)
 					  "Capi.Network.Serial",
 					  "ready_for_serial");
 	if (!msg) {
-		LOGE("Unable to allocate D-Bus signal\n");
+		ERR("Unable to allocate D-Bus signal\n");
 		return SERIAL_ERROR_OPERATION_FAILED;
 	}
 
 	if (!dbus_message_append_args(msg,
 			DBUS_TYPE_STRING, &res,
 			DBUS_TYPE_INVALID)) {
-		LOGE("Event sending failed\n");
+		ERR("Event sending failed\n");
 		dbus_message_unref(msg);
 		return SERIAL_ERROR_OPERATION_FAILED;
 	}
@@ -206,7 +210,7 @@ int __send_serial_ready_done_signal(void)
 static int __serial_set_state_changed_cb(serial_h serial, void *callback, void *user_data)
 {
 	if (!serial) {
-		LOGE("Invalid parameter\n");
+		ERR("Invalid parameter\n");
 		return SERIAL_ERROR_INVALID_PARAMETER;
 	}
 
@@ -226,7 +230,7 @@ static int __serial_set_state_changed_cb(serial_h serial, void *callback, void *
 static int __serial_set_data_received_cb(serial_h serial, void *callback, void *user_data)
 {
 	if (!serial) {
-		LOGE("Invalid parameter\n");
+		ERR("Invalid parameter\n");
 		return SERIAL_ERROR_INVALID_PARAMETER;
 	}
 
@@ -251,40 +255,45 @@ static int __serial_set_data_received_cb(serial_h serial, void *callback, void *
 
 int serial_create(serial_h *serial)
 {
-	LOGI("%s\n", __FUNCTION__);
+	DBG("%s\n", __FUNCTION__);
 
 	GError *error = NULL;
 	DBusError dbus_error;
+	serial_s *pHandle = NULL;
 
 	if (serial == NULL)
 		return SERIAL_ERROR_INVALID_PARAMETER;
 
-	*serial =g_malloc0(sizeof(serial_s));
-	if (*serial == NULL)
+	pHandle = (serial_s *)g_try_malloc0(sizeof(serial_s));
+	if (pHandle == NULL)
 		return SERIAL_ERROR_OUT_OF_MEMORY;
 
 	g_type_init();
 
-	((serial_s *)*serial)->client_bus = dbus_g_bus_get(DBUS_BUS_SYSTEM, &error);
+	pHandle->client_bus = dbus_g_bus_get(DBUS_BUS_SYSTEM, &error);
 	if (error) {
-		LOGE("Couldn't connect to the System bus[%s]",
+		ERR("Couldn't connect to the System bus[%s]",
 								error->message);
 		g_error_free(error);
-		free(*serial);
+		g_free(pHandle);
 		return SERIAL_ERROR_OPERATION_FAILED;
 	}
-	dbus_connection = dbus_g_connection_get_connection(((serial_s *)*serial)->client_bus);
+	dbus_connection = dbus_g_connection_get_connection(pHandle->client_bus);
 
 	/* Add the filter for network client functions */
 	dbus_error_init(&dbus_error);
-	dbus_connection_add_filter(dbus_connection, __dbus_event_filter, ((serial_s *)*serial), NULL);
+	dbus_connection_add_filter(dbus_connection, __dbus_event_filter, pHandle, NULL);
 	dbus_bus_add_match(dbus_connection,
 			   "type=signal,interface=" SERIAL_INTERFACE
 			   ",member=serial_status", &dbus_error);
 	if (dbus_error_is_set(&dbus_error)) {
-		LOGE("Fail to add dbus filter signal\n");
+		ERR("Fail to add dbus filter signal\n");
 		dbus_error_free(&dbus_error);
+		g_free(pHandle);
+		return SERIAL_ERROR_OPERATION_FAILED;
 	}
+
+	*serial = (serial_h)pHandle;
 
 	return SERIAL_ERROR_NONE;
 }
@@ -292,10 +301,10 @@ int serial_create(serial_h *serial)
 
 int serial_open(serial_h serial)
 {
-	LOGI("%s\n", __FUNCTION__);
+	DBG("%s\n", __FUNCTION__);
 
 	if (!serial) {
-		LOGE("Invalid parameter\n");
+		ERR("Invalid parameter\n");
 		return SERIAL_ERROR_INVALID_PARAMETER;
 	}
 
@@ -304,16 +313,16 @@ int serial_open(serial_h serial)
 
 int serial_close(serial_h serial)
 {
-	LOGI("%s\n", __FUNCTION__);
+	DBG("%s\n", __FUNCTION__);
 
 	if (!serial) {
-		LOGE("Invalid parameter\n");
+		ERR("Invalid parameter\n");
 		return SERIAL_ERROR_INVALID_PARAMETER;
 	}
 
 	serial_s *pHandle = (serial_s *)serial;
 
-	if (pHandle->client_socket > 0) {
+	if (pHandle->client_socket >= 0) {
 		if (close(pHandle->client_socket) < 0)
 			return SERIAL_ERROR_OPERATION_FAILED;
 
@@ -327,14 +336,19 @@ int serial_close(serial_h serial)
 
 int serial_destroy(serial_h serial)
 {
-	LOGI("%s\n", __FUNCTION__);
+	DBG("%s\n", __FUNCTION__);
 
 	if (!serial) {
-		LOGE("Invalid parameter\n");
+		ERR("Invalid parameter\n");
 		return SERIAL_ERROR_INVALID_PARAMETER;
 	}
 
 	serial_s *pHandle = (serial_s *)serial;
+
+	if (dbus_connection != NULL) {
+		dbus_connection_remove_filter(dbus_connection, __dbus_event_filter, pHandle);
+		dbus_connection = NULL;
+	}
 
 	if (pHandle->client_bus != NULL) {
 		dbus_g_connection_unref(pHandle->client_bus);
@@ -343,10 +357,10 @@ int serial_destroy(serial_h serial)
 
 	if (pHandle->g_watch_id > 0) {
 		g_source_remove(pHandle->g_watch_id);
-		pHandle->g_watch_id = -1;
+		pHandle->g_watch_id = 0;
 	}
 
-	if (pHandle->client_socket > 0) {
+	if (pHandle->client_socket >= 0) {
 		close(pHandle->client_socket);
 		pHandle->client_socket = -1;
 	}
@@ -360,7 +374,7 @@ int serial_destroy(serial_h serial)
 int serial_write(serial_h serial, const char *data, int data_length)
 {
 	if (!serial) {
-		LOGE("Invalid parameter\n");
+		ERR("Invalid parameter\n");
 		return SERIAL_ERROR_INVALID_PARAMETER;
 	}
 	int ret;
@@ -368,8 +382,8 @@ int serial_write(serial_h serial, const char *data, int data_length)
 
 	ret = send(pHandle->client_socket, data, data_length, MSG_EOR);
 	if (ret == -1) {
-		 LOGE("Send failed. ");
-		 return SERIAL_ERROR_OPERATION_FAILED;
+		ERR("Send failed. ");
+		return SERIAL_ERROR_OPERATION_FAILED;
 	}
 
 	return ret;
@@ -377,10 +391,10 @@ int serial_write(serial_h serial, const char *data, int data_length)
 
 int serial_set_state_changed_cb(serial_h serial, serial_state_changed_cb callback, void *user_data)
 {
-	LOGI("%s\n", __FUNCTION__);
+	DBG("%s\n", __FUNCTION__);
 
 	if (!serial || !callback) {
-		LOGE("Invalid parameter\n");
+		ERR("Invalid parameter\n");
 		return SERIAL_ERROR_INVALID_PARAMETER;
 	}
 
@@ -389,10 +403,10 @@ int serial_set_state_changed_cb(serial_h serial, serial_state_changed_cb callbac
 
 int serial_unset_state_changed_cb(serial_h serial)
 {
-	LOGI("%s\n", __FUNCTION__);
+	DBG("%s\n", __FUNCTION__);
 
 	if (!serial) {
-		LOGE("Invalid parameter\n");
+		ERR("Invalid parameter\n");
 		return SERIAL_ERROR_INVALID_PARAMETER;
 	}
 
@@ -401,10 +415,10 @@ int serial_unset_state_changed_cb(serial_h serial)
 
 int serial_set_data_received_cb(serial_h serial, serial_data_received_cb callback, void *user_data)
 {
-	LOGI("%s\n", __FUNCTION__);
+	DBG("%s\n", __FUNCTION__);
 
 	if (!serial || !callback) {
-		LOGE("Invalid parameter\n");
+		ERR("Invalid parameter\n");
 		return SERIAL_ERROR_INVALID_PARAMETER;
 	}
 
@@ -413,10 +427,10 @@ int serial_set_data_received_cb(serial_h serial, serial_data_received_cb callbac
 
 int serial_unset_data_received_cb(serial_h serial)
 {
-	LOGI("%s\n", __FUNCTION__);
+	DBG("%s\n", __FUNCTION__);
 
 	if (!serial) {
-		LOGE("Invalid parameter\n");
+		ERR("Invalid parameter\n");
 		return SERIAL_ERROR_INVALID_PARAMETER;
 	}
 
