@@ -9,7 +9,7 @@ SET(PREFIX ${CMAKE_INSTALL_PREFIX})
 SET(INC_DIR include)
 INCLUDE_DIRECTORIES(${INC_DIR})
 
-SET(dependents "dlog glib-2.0 capi-base-common dbus-glib-1")
+SET(dependents "dlog glib-2.0 capi-base-common gio-2.0")
 SET(pc_dependents "capi-base-common")
 
 INCLUDE(FindPkgConfig)

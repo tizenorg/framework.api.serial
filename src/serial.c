@@ -20,10 +20,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include <dbus/dbus.h>
-#include <dbus/dbus-glib.h>
-#include <dbus/dbus-glib-lowlevel.h>
-#include <dbus/dbus-glib-bindings.h>
+#include <gio/gio.h>
 #include <unistd.h>
 #include <sys/un.h>
 #include <sys/socket.h>
@@ -44,8 +41,9 @@
 #define SERIAL_SOCKET_PATH	"/tmp/.dr_common_stream"
 #define SERIAL_BUF_SIZE		65536
 #define SERIAL_INTERFACE		"User.Data.Router.Introspectable"
+#define SERIAL_STATUS_SIGNAL	"serial_status"
 
-DBusConnection *dbus_connection = NULL;
+GDBusConnection *dbus_connection = NULL;
 
 
 /*
@@ -126,86 +124,73 @@ static int __connect_to_serial_server(void *data)
 	return client_socket;
 }
 
-
-static DBusHandlerResult __dbus_event_filter(DBusConnection *sys_conn,
-							DBusMessage *msg, void *data)
+static void __serial_status_signal_cb(GDBusConnection *connection,
+					const gchar *sender_name,
+					const gchar *object_path,
+					const gchar *interface_name,
+					const gchar *signal_name,
+					GVariant *parameters,
+					gpointer user_data)
 {
 	static int socket = -1;
-	const char *path = dbus_message_get_path(msg);
+	int status = 0;
 
-	if (dbus_message_get_type(msg) != DBUS_MESSAGE_TYPE_SIGNAL)
-		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+	if (strcasecmp(signal_name, SERIAL_STATUS_SIGNAL) == 0) {
+		g_variant_get(parameters, "(i)", &status);
 
-	if (path == NULL || strcmp(path, "/") == 0)
-		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+		DBG("serial_status : %d\n", status);
 
-	if (dbus_message_is_signal(msg, SERIAL_INTERFACE, "serial_status")) {
-		int res = 0;
-		dbus_message_get_args(msg, NULL,
-					DBUS_TYPE_INT32, &res,
-					DBUS_TYPE_INVALID);
-		DBG("serial_status : %d\n", res);
-
-		serial_s *pHandle = (serial_s *)data;
-		if (res == SERIAL_OPENED) {
+		serial_s *pHandle = (serial_s *)user_data;
+		if (status == SERIAL_OPENED) {
 			socket = __connect_to_serial_server(pHandle);
 			if (socket < 0) {
 				((serial_state_changed_cb)pHandle->state_handler.callback)
 						(SERIAL_ERROR_OPERATION_FAILED,
 						SERIAL_STATE_OPENED,
 						pHandle->state_handler.user_data);
-				return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+				return;
 			}
 
 			((serial_state_changed_cb)pHandle->state_handler.callback)
 					(SERIAL_ERROR_NONE,
 					SERIAL_STATE_OPENED,
 					pHandle->state_handler.user_data);
-		} else if (res == SERIAL_CLOSED) {
+		} else if (status == SERIAL_CLOSED) {
 			if (socket < 0)
-				return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+				return;
 
 			((serial_state_changed_cb)pHandle->state_handler.callback)
 					(SERIAL_ERROR_NONE,
 					SERIAL_STATE_CLOSED,
 					pHandle->state_handler.user_data);
 		}
-	} else {
-		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	}
-
-	return DBUS_HANDLER_RESULT_HANDLED;
 }
 
 int __send_serial_ready_done_signal(void)
 {
-	DBusMessage *msg = NULL;
-	const char *res = "OK";
+	GError *error = NULL;
+	gboolean ret;
 
-	if(dbus_connection == NULL)
-		return SERIAL_ERROR_INVALID_OPERATION;
-
-	msg = dbus_message_new_signal("/Network/Serial",
-					  "Capi.Network.Serial",
-					  "ready_for_serial");
-	if (!msg) {
-		ERR("Unable to allocate D-Bus signal\n");
-		return SERIAL_ERROR_OPERATION_FAILED;
+	ret =  g_dbus_connection_emit_signal(dbus_connection, NULL,
+				"/Network/Serial",
+				"Capi.Network.Serial",
+				"ready_for_serial",
+				g_variant_new("(s)", "OK"),
+				&error);
+	if (!ret) {
+		if (error != NULL) {
+			ERR("D-Bus API failure: errCode[%x], message[%s]",
+				error->code, error->message);
+			g_clear_error(&error);
+			return SERIAL_ERROR_OPERATION_FAILED;
+		}
 	}
 
-	if (!dbus_message_append_args(msg,
-			DBUS_TYPE_STRING, &res,
-			DBUS_TYPE_INVALID)) {
-		ERR("Event sending failed\n");
-		dbus_message_unref(msg);
-		return SERIAL_ERROR_OPERATION_FAILED;
-	}
+	DBG("Serial is ready");
 
-	dbus_connection_send(dbus_connection, msg, NULL);
-	dbus_message_unref(msg);
 	return SERIAL_ERROR_NONE;
 }
-
 
 static int __serial_set_state_changed_cb(serial_h serial, void *callback, void *user_data)
 {
@@ -252,13 +237,11 @@ static int __serial_set_data_received_cb(serial_h serial, void *callback, void *
 /*
  *  Public Functions
  */
-
 int serial_create(serial_h *serial)
 {
 	DBG("%s\n", __FUNCTION__);
 
-	GError *error = NULL;
-	DBusError dbus_error;
+	GError *err = NULL;
 	serial_s *pHandle = NULL;
 
 	if (serial == NULL)
@@ -268,30 +251,20 @@ int serial_create(serial_h *serial)
 	if (pHandle == NULL)
 		return SERIAL_ERROR_OUT_OF_MEMORY;
 
-	g_type_init();
-
-	pHandle->client_bus = dbus_g_bus_get(DBUS_BUS_SYSTEM, &error);
-	if (error) {
-		ERR("Couldn't connect to the System bus[%s]",
-								error->message);
-		g_error_free(error);
-		g_free(pHandle);
+	pHandle->serial_sig_id = -1;
+	dbus_connection = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &err);
+	if(!dbus_connection) {
+		ERR(" DBUS get failed");
+		g_error_free(err);
 		return SERIAL_ERROR_OPERATION_FAILED;
 	}
-	dbus_connection = dbus_g_connection_get_connection(pHandle->client_bus);
 
 	/* Add the filter for network client functions */
-	dbus_error_init(&dbus_error);
-	dbus_connection_add_filter(dbus_connection, __dbus_event_filter, pHandle, NULL);
-	dbus_bus_add_match(dbus_connection,
-			   "type=signal,interface=" SERIAL_INTERFACE
-			   ",member=serial_status", &dbus_error);
-	if (dbus_error_is_set(&dbus_error)) {
-		ERR("Fail to add dbus filter signal\n");
-		dbus_error_free(&dbus_error);
-		g_free(pHandle);
-		return SERIAL_ERROR_OPERATION_FAILED;
-	}
+	pHandle->serial_sig_id  = g_dbus_connection_signal_subscribe(dbus_connection, NULL,
+			SERIAL_INTERFACE,
+			SERIAL_STATUS_SIGNAL,
+			NULL, NULL, 0,
+			__serial_status_signal_cb, pHandle, NULL);
 
 	*serial = (serial_h)pHandle;
 
@@ -345,14 +318,10 @@ int serial_destroy(serial_h serial)
 
 	serial_s *pHandle = (serial_s *)serial;
 
-	if (dbus_connection != NULL) {
-		dbus_connection_remove_filter(dbus_connection, __dbus_event_filter, pHandle);
-		dbus_connection = NULL;
-	}
-
-	if (pHandle->client_bus != NULL) {
-		dbus_g_connection_unref(pHandle->client_bus);
-		pHandle->client_bus = NULL;
+	if (pHandle->serial_sig_id != -1) {
+		g_dbus_connection_signal_unsubscribe(dbus_connection,
+				pHandle->serial_sig_id);
+		pHandle->serial_sig_id = -1;
 	}
 
 	if (pHandle->g_watch_id > 0) {

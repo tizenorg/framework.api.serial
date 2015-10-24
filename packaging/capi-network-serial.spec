@@ -1,14 +1,14 @@
 Name:       capi-network-serial
 Summary:    Network Serial Framework
-Version:    0.0.9
+Version:    0.0.13
 Release:    0
 Group:      TO_BE/FILLED_IN
-License:    Apache License, Version 2.0
+License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
 Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
 
-BuildRequires:  pkgconfig(dbus-glib-1)
+BuildRequires:  pkgconfig(gio-2.0)
 BuildRequires:  pkgconfig(dlog)
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(capi-base-common)

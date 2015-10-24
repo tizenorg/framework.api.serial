@@ -18,7 +18,6 @@
 #ifndef __TIZEN_NETWORK_SERIAL_PRIVATE_H__
 #define __TIZEN_NETWORK_SERIAL_PRIVATE_H__
 
-#include <dbus/dbus-glib.h>
 
 #include "serial.h"
 
@@ -42,13 +41,13 @@ extern "C" {
   * @brief Serial handle
   */
  typedef struct _serial_s{
-	DBusGConnection *client_bus;
 	int client_socket;
 	guint g_watch_id;
 	serial_event_s state_handler;
 	serial_event_s data_handler;
 	void *handle;
-}serial_s;
+	int serial_sig_id;
+} serial_s;
 
 /**
  * @internal
@@ -57,7 +56,7 @@ extern "C" {
 typedef enum {
 	SERIAL_CLOSED,		/* Serial session closed */
 	SERIAL_OPENED,		/* Serial session opened */
-}serial_event_e;
+} serial_event_e;
 
 
 #ifdef __cplusplus
